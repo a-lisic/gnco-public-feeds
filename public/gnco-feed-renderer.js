@@ -1,7 +1,7 @@
 (function gncoFeedRenderer() {
   "use strict";
 
-  var VERSION = "1.2.1";
+  var VERSION = "1.2.2";
   var MOUNT_SELECTOR = "[data-gnco-feed]";
   var HOME_EVENT_EXCLUDED_TITLES = ["sunday worship"];
   var HOME_EVENT_EXCLUDED_CATEGORY_TAGS = ["hide from home"];
@@ -236,7 +236,58 @@
       status: status,
       output: output,
       hasRendered: false,
+      generatedSectionHeading: null,
+      visualSectionHeading: null,
+      visualSectionHeadingAriaHidden: null,
     };
+  }
+
+  function headingKey(value) {
+    return titleKey(value).replace(/[’‘]/g, "'");
+  }
+
+  function releaseHomeEventHeading(shell) {
+    if (shell.generatedSectionHeading && shell.generatedSectionHeading.isConnected) {
+      shell.generatedSectionHeading.remove();
+    }
+    shell.generatedSectionHeading = null;
+
+    if (shell.visualSectionHeading && shell.visualSectionHeading.isConnected) {
+      if (shell.visualSectionHeadingAriaHidden === null) {
+        shell.visualSectionHeading.removeAttribute("aria-hidden");
+      } else {
+        shell.visualSectionHeading.setAttribute("aria-hidden", shell.visualSectionHeadingAriaHidden);
+      }
+      shell.visualSectionHeading.removeAttribute("data-gnco-feed-visual-heading");
+    }
+    shell.visualSectionHeading = null;
+    shell.visualSectionHeadingAriaHidden = null;
+  }
+
+  function prepareHomeEventHeading(shell) {
+    releaseHomeEventHeading(shell);
+    var section = shell.mount.closest("section");
+    if (!section) return null;
+
+    var nativeHeadings = Array.from(section.querySelectorAll("h2")).filter(function matchingLaterHeading(heading) {
+      if (shell.mount.contains(heading)) return false;
+      if (headingKey(heading.textContent) !== "what's happening") return false;
+      if (heading.hidden || heading.getAttribute("aria-hidden") === "true") return false;
+      if (heading.querySelector("a,button,input,select,textarea,[tabindex]")) return false;
+      return Boolean(shell.mount.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    if (nativeHeadings.length !== 1) return null;
+
+    var nativeHeading = nativeHeadings[0];
+    shell.visualSectionHeading = nativeHeading;
+    shell.visualSectionHeadingAriaHidden = nativeHeading.getAttribute("aria-hidden");
+    nativeHeading.setAttribute("aria-hidden", "true");
+    nativeHeading.setAttribute("data-gnco-feed-visual-heading", "home-events");
+
+    var accessibleHeading = element("h2", "gnco-feed__sr-heading", "What’s happening");
+    accessibleHeading.setAttribute("data-gnco-generated", "home-events-heading");
+    shell.generatedSectionHeading = accessibleHeading;
+    return accessibleHeading;
   }
 
   function setState(shell, state, message) {
@@ -249,6 +300,10 @@
       shell.output.hidden = false;
       shell.hasRendered = true;
       return;
+    }
+
+    if (state === "empty" || state === "unavailable") {
+      releaseHomeEventHeading(shell);
     }
 
     if (state === "empty" || state === "unavailable" || !shell.hasRendered) {
@@ -611,7 +666,11 @@
     });
 
     if (!accepted) return 0;
-    shell.output.replaceChildren(grid);
+    var sectionHeading = config.type === "home-events" ? prepareHomeEventHeading(shell) : null;
+    shell.output.replaceChildren.apply(
+      shell.output,
+      sectionHeading ? [sectionHeading, grid] : [grid],
+    );
     return accepted;
   }
 
@@ -699,6 +758,7 @@
       "[data-gnco-feed]{--gnco-feed-ink:#242321;--gnco-feed-paper:#f7f3eb;--gnco-feed-accent:#bf6f1e;--gnco-feed-line:rgba(36,35,33,.18);color:var(--gnco-feed-ink);font-family:\"DM Sans\",var(--body-font-font-family),sans-serif}",
       "[data-gnco-feed][aria-busy=\"true\"]{cursor:progress}",
       ".gnco-feed__status{margin:.75rem 0;color:inherit;font:600 .9rem/1.5 \"DM Sans\",var(--body-font-font-family),sans-serif}",
+      ".gnco-feed__sr-heading{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}",
       "[data-gnco-state=\"ready\"]>.gnco-feed__status{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}",
       ".gnco-feed__grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:clamp(1rem,2vw,1.75rem)}",
       ".gnco-feed-card{min-width:0;background:var(--gnco-feed-paper);border-top:5px solid var(--gnco-feed-ink);display:flex;flex-direction:column}",

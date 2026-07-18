@@ -233,6 +233,74 @@ describe("standalone Squarespace renderer", () => {
     expect(stagingMessages.document.querySelector("#latest .gnco-feed-card__title").tagName).toBe("H2");
   });
 
+  it("repairs an out-of-order Home events heading without creating a duplicate accessible H2", async () => {
+    let requestNumber = 0;
+    const fetchMock = vi.fn(async () => {
+      requestNumber += 1;
+      return response(
+        requestNumber === 1
+          ? envelope("events", [eventRecord("event-heading", "Heading Order Event")])
+          : envelope("events", [], "unavailable"),
+      );
+    });
+    const { dom, document } = await render(
+      [
+        '<section id="events-section">',
+        '<div id="home-events" data-gnco-feed="home-events"><div data-gnco-native>Fallback</div></div>',
+        '<h2 id="native-events-heading">What\u2019s happening</h2>',
+        '<h2 id="next-heading">Core values lived out loud.</h2>',
+        '</section>',
+      ].join(""),
+      {},
+      { fetchMock, url: "https://goodnewsco.church/" },
+    );
+
+    const section = document.querySelector("#events-section");
+    const mount = document.querySelector("#home-events");
+    const generatedHeading = mount.querySelector('[data-gnco-generated="home-events-heading"]');
+    const cardHeading = mount.querySelector(".gnco-feed-card__title");
+    const nativeHeading = document.querySelector("#native-events-heading");
+    expect(generatedHeading.tagName).toBe("H2");
+    expect(generatedHeading.textContent).toBe("What’s happening");
+    expect(cardHeading.tagName).toBe("H3");
+    expect(generatedHeading.compareDocumentPosition(cardHeading) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nativeHeading.getAttribute("aria-hidden")).toBe("true");
+    expect(nativeHeading.getAttribute("data-gnco-feed-visual-heading")).toBe("home-events");
+    expect(nativeHeading.getAttribute("style")).toBeNull();
+
+    const accessibleMatchingHeadings = Array.from(section.querySelectorAll("h2")).filter((heading) =>
+      heading.getAttribute("aria-hidden") !== "true" &&
+      heading.textContent.replace(/[’‘]/g, "'").trim().toLowerCase() === "what's happening",
+    );
+    expect(accessibleMatchingHeadings).toEqual([generatedHeading]);
+    expect(rendererSource).toContain(".gnco-feed__sr-heading{position:absolute!important");
+
+    await dom.window.GNCOFeeds.refresh(mount);
+    expect(nativeHeading.getAttribute("aria-hidden")).toBeNull();
+    expect(nativeHeading.getAttribute("data-gnco-feed-visual-heading")).toBeNull();
+    expect(mount.querySelector('[data-gnco-generated="home-events-heading"]')).toBeNull();
+    expect(mount.querySelector(".gnco-feed__output").hidden).toBe(true);
+  });
+
+  it("does not hide or replace ambiguous native Home event headings", async () => {
+    const { document } = await render(
+      [
+        '<section id="ambiguous-section">',
+        '<div id="home-events" data-gnco-feed="home-events"><div data-gnco-native>Fallback</div></div>',
+        '<h2 class="candidate">What\u2019s happening</h2>',
+        '<h2 class="candidate">What\u2019s happening</h2>',
+        '</section>',
+      ].join(""),
+      { "/v1/events": envelope("events", [eventRecord("event-ambiguous", "Ambiguous Heading Event")]) },
+      { url: "https://goodnewsco.church/" },
+    );
+
+    expect(document.querySelector('[data-gnco-generated="home-events-heading"]')).toBeNull();
+    expect(Array.from(document.querySelectorAll("#ambiguous-section .candidate")).every((heading) =>
+      heading.getAttribute("aria-hidden") === null,
+    )).toBe(true);
+  });
+
   it("uses only each record's stable associated image and never its signed source URL", async () => {
     const first = eventRecord("event-a", "First Event", "first-art");
     const second = eventRecord("event-b", "Second Event", "second-art");
