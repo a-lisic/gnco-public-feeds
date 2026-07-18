@@ -136,6 +136,60 @@ describe("standalone Squarespace renderer", () => {
     expect(new Set(requestedPaths)).toEqual(new Set(["/v1/events", "/v1/messages", "/v1/series"]));
   });
 
+  it("spotlights the next three non-routine events on Home without changing the full Events feed", async () => {
+    const sunday = eventRecord("event-sunday", "  SUNDAY WORSHIP  ", "sunday-art");
+    const baptism = eventRecord("event-baptism", "Summer Outdoor Baptisms", "baptism-art");
+    const students = eventRecord("event-students", "The Girls Bible Study", "students-art");
+    const hidden = eventRecord("event-hidden", "Internal Setup Night", "hidden-art");
+    const kindness = eventRecord("event-kindness", "Kindness Co. Meeting", "kindness-art");
+    const futureBaptism = eventRecord("event-baptism-sunday", "Baptism Sunday", "future-baptism-art");
+    const records = [sunday, baptism, students, hidden, kindness, futureBaptism];
+    const base = Date.now() + 24 * 60 * 60 * 1000;
+
+    records.forEach((record, index) => {
+      record.startsAt = new Date(base + index * 60 * 60 * 1000).toISOString();
+      record.endsAt = new Date(base + (index + 1) * 60 * 60 * 1000).toISOString();
+    });
+    baptism.registrationUrl = "https://goodnewsco.churchcenter.com/registrations/events/event-baptism";
+    hidden.categoryTags = ["Hide from Home"];
+
+    const { document } = await render(
+      [
+        '<div id="home" data-gnco-feed="home-events"><div data-gnco-native>Home fallback</div></div>',
+        '<div id="events" data-gnco-feed="events"><div data-gnco-native>Events fallback</div></div>',
+      ].join(""),
+      { "/v1/events": envelope("events", records) },
+    );
+
+    const homeCards = Array.from(document.querySelectorAll("#home .gnco-feed-card"));
+    const eventCards = Array.from(document.querySelectorAll("#events .gnco-feed-card"));
+    expect(homeCards.map((card) => card.querySelector(".gnco-feed-card__title").textContent)).toEqual([
+      "Summer Outdoor Baptisms",
+      "The Girls Bible Study",
+      "Kindness Co. Meeting",
+    ]);
+    expect(eventCards.map((card) => card.querySelector(".gnco-feed-card__title").textContent)).toEqual([
+      "SUNDAY WORSHIP",
+      "Summer Outdoor Baptisms",
+      "The Girls Bible Study",
+      "Internal Setup Night",
+      "Kindness Co. Meeting",
+      "Baptism Sunday",
+    ]);
+
+    expect(homeCards[0].querySelector("img").src).toContain("/event/event-baptism/baptism-art");
+    expect(homeCards[0].querySelector("img").alt).toBe("Summer Outdoor Baptisms source artwork");
+    expect(homeCards[0].querySelector("time").dateTime).toBe(baptism.startsAt);
+    expect(homeCards[0].querySelector(".gnco-feed-card__title-link").href).toContain(
+      "/calendar/event/event-baptism",
+    );
+    expect(homeCards[0].querySelector(".gnco-feed-card__action").href).toContain(
+      "/registrations/events/event-baptism",
+    );
+    expect(document.querySelector("#home").getAttribute("data-gnco-state")).toBe("ready");
+    expect(document.querySelector("#events").getAttribute("data-gnco-state")).toBe("ready");
+  });
+
   it("uses only each record's stable associated image and never its signed source URL", async () => {
     const first = eventRecord("event-a", "First Event", "first-art");
     const second = eventRecord("event-b", "Second Event", "second-art");

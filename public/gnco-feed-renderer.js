@@ -1,8 +1,10 @@
 (function gncoFeedRenderer() {
   "use strict";
 
-  var VERSION = "1.1.0";
+  var VERSION = "1.2.0";
   var MOUNT_SELECTOR = "[data-gnco-feed]";
+  var HOME_EVENT_EXCLUDED_TITLES = ["sunday worship"];
+  var HOME_EVENT_EXCLUDED_CATEGORY_TAGS = ["hide from home"];
   var ENDPOINTS = {
     "home-events": { path: "/v1/events", stream: "events", kind: "event", limit: 3 },
     "latest-message": { path: "/v1/messages", stream: "messages", kind: "message", limit: 1 },
@@ -323,6 +325,29 @@
     return value.replace(/\s+/g, " ").trim().slice(0, maximum);
   }
 
+  function titleKey(value) {
+    return plainText(value, 180).toLowerCase();
+  }
+
+  function isHomeSpotlightEvent(record) {
+    var sourceTitle = titleKey(record && record.sourceTitle);
+    var displayTitle = titleKey(record && record.displayTitle);
+    var categoryTags = Array.isArray(record && record.categoryTags)
+      ? record.categoryTags.map(titleKey)
+      : [];
+
+    if (
+      HOME_EVENT_EXCLUDED_TITLES.includes(sourceTitle) ||
+      HOME_EVENT_EXCLUDED_TITLES.includes(displayTitle)
+    ) {
+      return false;
+    }
+
+    return !categoryTags.some(function hasHomeExclusionTag(tag) {
+      return HOME_EVENT_EXCLUDED_CATEGORY_TAGS.includes(tag);
+    });
+  }
+
   function sourceDescription(value, maximum) {
     if (typeof value !== "string") return "";
     try {
@@ -537,6 +562,14 @@
       })
       : records;
 
+    if (config.type === "home-events") {
+      currentRecords = currentRecords
+        .filter(isHomeSpotlightEvent)
+        .sort(function sortHomeEvents(left, right) {
+          return Date.parse(left.startsAt) - Date.parse(right.startsAt);
+        });
+    }
+
     currentRecords.slice(0, config.limit).forEach(function renderRecord(record) {
       if (!record || typeof record !== "object" || record.kind !== config.kind) return;
       var card = config.kind === "event"
@@ -549,9 +582,9 @@
       accepted += 1;
     });
 
-    if (!accepted) return false;
+    if (!accepted) return 0;
     shell.output.replaceChildren(grid);
-    return true;
+    return accepted;
   }
 
   function dispatch(shell, state, count) {
@@ -591,14 +624,15 @@
           dispatch(instance.shell, "unavailable", 0);
           return;
         }
-        if (!renderRecords(instance.shell, envelope.records, config)) {
+        var renderedCount = renderRecords(instance.shell, envelope.records, config);
+        if (!renderedCount) {
           setState(instance.shell, "empty", config.emptyText);
           dispatch(instance.shell, "empty", 0);
           return;
         }
         var state = envelopeStatus === "stale" ? "stale" : "ready";
         setState(instance.shell, state, state === "stale" ? config.staleText : "Current information loaded.");
-        dispatch(instance.shell, state, Math.min(config.limit, envelope.records.length));
+        dispatch(instance.shell, state, renderedCount);
       })
       .catch(function handleFailure(error) {
         debug(error);
