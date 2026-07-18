@@ -94,7 +94,7 @@ async function render(html, feedByPath, options = {}) {
         data-gnco-link-hosts="goodnewsco.churchcenter.com,goodnewsco.church,www.goodnewsco.church"`}></script>
       ${html}
     </body></html>`,
-    { url: "https://goodnewsco.church/", runScripts: "outside-only" },
+    { url: options.url || "https://goodnewsco.church/", runScripts: "outside-only" },
   );
   openDoms.push(dom);
   Object.defineProperty(dom.window, "fetch", { configurable: true, value: fetchMock });
@@ -188,6 +188,49 @@ describe("standalone Squarespace renderer", () => {
     );
     expect(document.querySelector("#home").getAttribute("data-gnco-state")).toBe("ready");
     expect(document.querySelector("#events").getAttribute("data-gnco-state")).toBe("ready");
+  });
+
+  it("keeps Home feed cards under native H2 sections and promotes the Messages latest title to H2", async () => {
+    const homeEvent = eventRecord("event-home", "Home Event");
+    const latest = messageRecord("message-latest", "Current Message");
+    const home = await render(
+      [
+        '<section id="home-events-section"><h2 id="home-events-heading">What\u2019s happening</h2><div id="home-events" data-gnco-feed="home-events" data-gnco-heading-level="2"><div data-gnco-native>Fallback</div></div></section>',
+        '<section id="home-message-section"><h2 id="home-message-heading">Current message</h2><div id="home-message" data-gnco-feed="latest-message" data-gnco-heading-level="2"><div data-gnco-native>Fallback</div></div></section>',
+      ].join(""),
+      {
+        "/v1/events": envelope("events", [homeEvent]),
+        "/v1/messages": envelope("messages", [latest]),
+      },
+      { url: "https://goodnewsco.church/" },
+    );
+
+    const homeEventTitle = home.document.querySelector("#home-events .gnco-feed-card__title");
+    const homeMessageTitle = home.document.querySelector("#home-message .gnco-feed-card__title");
+    expect(homeEventTitle.tagName).toBe("H3");
+    expect(homeMessageTitle.tagName).toBe("H3");
+    expect(
+      home.document.querySelector("#home-events-heading").compareDocumentPosition(homeEventTitle) &
+        home.dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      home.document.querySelector("#home-message-heading").compareDocumentPosition(homeMessageTitle) &
+        home.dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    const messages = await render(
+      '<div id="latest" data-gnco-feed="latest-message" data-gnco-heading-level="3"><div data-gnco-native>Fallback</div></div>',
+      { "/v1/messages": envelope("messages", [latest]) },
+      { url: "https://goodnewsco.church/messages" },
+    );
+    expect(messages.document.querySelector("#latest .gnco-feed-card__title").tagName).toBe("H2");
+
+    const stagingMessages = await render(
+      '<div id="latest" data-gnco-feed="latest-message" data-gnco-heading-level="3"><div data-gnco-native>Fallback</div></div>',
+      { "/v1/messages": envelope("messages", [latest]) },
+      { url: "https://goodnewsco.church/messages-native-build" },
+    );
+    expect(stagingMessages.document.querySelector("#latest .gnco-feed-card__title").tagName).toBe("H2");
   });
 
   it("uses only each record's stable associated image and never its signed source URL", async () => {

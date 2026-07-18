@@ -1,7 +1,7 @@
 (function gncoFeedRenderer() {
   "use strict";
 
-  var VERSION = "1.2.0";
+  var VERSION = "1.2.1";
   var MOUNT_SELECTOR = "[data-gnco-feed]";
   var HOME_EVENT_EXCLUDED_TITLES = ["sunday worship"];
   var HOME_EVENT_EXCLUDED_CATEGORY_TAGS = ["hide from home"];
@@ -106,6 +106,32 @@
     }
   }
 
+  function pagePath() {
+    var pathname = window.location && typeof window.location.pathname === "string"
+      ? window.location.pathname
+      : "/";
+    if (pathname === "/") return pathname;
+    return pathname.replace(/\/+$/, "");
+  }
+
+  function resolvedHeadingLevel(mountType, requestedLevel) {
+    var pathname = pagePath();
+    if (
+      mountType === "latest-message" &&
+      (pathname === "/messages" || pathname === "/messages-native-build")
+    ) {
+      return 2;
+    }
+    if (mountType === "home-events") return 3;
+    if (
+      mountType === "latest-message" &&
+      (pathname === "/" || pathname === "/home" || pathname === "/home-2")
+    ) {
+      return 3;
+    }
+    return requestedLevel;
+  }
+
   function mountConfig(mount) {
     var mountType = textAttribute(mount, "data-gnco-feed", "");
     var definition = ENDPOINTS[mountType];
@@ -139,6 +165,8 @@
       ),
     );
 
+    var requestedHeadingLevel = integerAttribute(mount, "data-gnco-heading-level", 3, 2, 6);
+
     return {
       type: mountType,
       stream: definition.stream,
@@ -146,7 +174,7 @@
       endpoint: baseUrl.toString(),
       useStaticData: booleanAttribute(mount, "data-gnco-use-static-data", scriptConfig.useStaticData),
       limit: integerAttribute(mount, "data-gnco-limit", definition.limit, 1, 50),
-      headingLevel: integerAttribute(mount, "data-gnco-heading-level", 3, 2, 6),
+      headingLevel: resolvedHeadingLevel(mountType, requestedHeadingLevel),
       showDescription: booleanAttribute(mount, "data-gnco-show-description", true),
       loadingText: textAttribute(mount, "data-gnco-loading-text", "Loading current information…"),
       emptyText: textAttribute(mount, "data-gnco-empty-text", "Nothing new is scheduled right now."),
