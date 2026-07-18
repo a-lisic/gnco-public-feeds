@@ -10,14 +10,16 @@ afterEach(() => {
 });
 
 function eventRecord(id, title, imageSuffix = id) {
+  const startsAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const endsAt = new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString();
   return {
     kind: "event",
     sourceId: id,
     sourceTitle: title,
     displayTitle: title,
     description: `${title} description`,
-    startsAt: "2026-08-05T23:00:00.000Z",
-    endsAt: "2026-08-06T00:00:00.000Z",
+    startsAt,
+    endsAt,
     allDay: false,
     location: "GNCO Auditorium",
     url: `https://goodnewsco.churchcenter.com/calendar/event/${id}`,
