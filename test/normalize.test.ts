@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { filterExpiredEvents, normalizeEvents, normalizeMessages, normalizeSeries } from "../src/normalize";
 import type { JsonApiDocument } from "../src/types";
-import { canonicalArtworkSeed } from "../src/util";
+import { artworkSourceAllowed, canonicalArtworkSeed } from "../src/util";
 
 describe("event normalization", () => {
   it("keeps each event's exact data and filters events that have ended", () => {
@@ -187,5 +187,26 @@ describe("signed artwork identity", () => {
     expect(first).toBe(second);
     expect(first).toContain("key=asset-123");
     expect(first).toContain("thumb=1200x675");
+  });
+});
+
+describe("artwork source allowlist", () => {
+  it.each([
+    "https://images.planningcenterusercontent.com/v1/transform?key=event",
+    "https://avatars.planningcenteronline.com/uploads/organization/avatar.png",
+    "https://registrations-production.s3.amazonaws.com/uploads/event/logo.png",
+    "https://img.youtube.com/vi/video-id/maxresdefault.jpg",
+    "https://i.ytimg.com/vi/video-id/maxresdefault.jpg",
+  ])("allows the public artwork providers used by GNCO feeds: %s", (url) => {
+    expect(artworkSourceAllowed(url)).toBe(true);
+  });
+
+  it.each([
+    "http://images.planningcenterusercontent.com/insecure.jpg",
+    "https://planningcenterusercontent.com.attacker.example/image.jpg",
+    "https://s3.amazonaws.com/unscoped-bucket/image.jpg",
+    "not-a-url",
+  ])("rejects unsafe or unrelated artwork sources: %s", (url) => {
+    expect(artworkSourceAllowed(url)).toBe(false);
   });
 });

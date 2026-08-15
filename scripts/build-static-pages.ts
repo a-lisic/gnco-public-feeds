@@ -15,7 +15,7 @@ import type {
   StreamEnvelope,
   StreamName,
 } from "../src/types";
-import { canonicalArtworkSeed, errorMessage, sha256 } from "../src/util";
+import { artworkSourceAllowed, canonicalArtworkSeed, errorMessage, sha256 } from "../src/util";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const SERVICE_DIR = resolve(SCRIPT_DIR, "..");
@@ -132,19 +132,6 @@ function safeSegment(value: string): string {
   return sanitized || "record";
 }
 
-function sourceImageAllowed(rawUrl: string): boolean {
-  try {
-    const url = new URL(rawUrl);
-    const host = url.hostname.toLowerCase();
-    return (
-      url.protocol === "https:" &&
-      (host === "images.planningcenterusercontent.com" || host === "img.youtube.com" || /(^|\.)ytimg\.com$/.test(host))
-    );
-  } catch {
-    return false;
-  }
-}
-
 function withinPreviousBase(rawUrl: string, base: URL): boolean {
   try {
     const url = new URL(rawUrl);
@@ -200,7 +187,7 @@ async function acquireCurrentImage(
     }
   }
   const source = draft.sourceArtwork;
-  if (!source || !sourceImageAllowed(source.url)) throw new Error("Artwork source host is not allowlisted");
+  if (!source || !artworkSourceAllowed(source.url)) throw new Error("Artwork source host is not allowlisted");
   return fetchImage(source.url);
 }
 
@@ -227,16 +214,22 @@ async function hydrateDraft(
   const fingerprint = await imageFingerprint(draft);
   let image: Artwork | null = null;
   if (draft.sourceArtwork && fingerprint) {
-    const binary = await acquireCurrentImage(config, draft, fingerprint, previous);
-    const url = await persistImage(config, draft.kind, draft.sourceId, fingerprint, binary);
-    image = {
-      url,
-      alt: `${draft.displayTitle} ${draft.kind === "event" ? "event photo" : "artwork"}`,
-      fingerprint,
-      sourceField: draft.sourceArtwork.field,
-      sourceUrl: draft.sourceArtwork.url,
-      sourceExpiresAt: draft.sourceArtwork.expiresAt,
-    };
+    try {
+      const binary = await acquireCurrentImage(config, draft, fingerprint, previous);
+      const url = await persistImage(config, draft.kind, draft.sourceId, fingerprint, binary);
+      image = {
+        url,
+        alt: `${draft.displayTitle} ${draft.kind === "event" ? "event photo" : "artwork"}`,
+        fingerprint,
+        sourceField: draft.sourceArtwork.field,
+        sourceUrl: draft.sourceArtwork.url,
+        sourceExpiresAt: draft.sourceArtwork.expiresAt,
+      };
+    } catch (error) {
+      console.warn(
+        `Artwork unavailable for ${draft.kind}:${draft.sourceId}; publishing current record without image: ${errorMessage(error)}`,
+      );
+    }
   }
   const { sourceArtwork: _sourceArtwork, ...record } = draft;
   const recordVersion = (
@@ -523,6 +516,9 @@ async function main(): Promise<void> {
 
   for (const envelope of [events, messages, series]) {
     console.log(`${envelope.stream}: ${envelope.status}, ${envelope.records.length} records`);
+  }
+  if (combinedStatus !== "live") {
+    throw new Error(`Refusing to publish stale feeds (combined status: ${combinedStatus})`);
   }
   console.log(`Static feed written to ${config.outputDirectory}`);
 }

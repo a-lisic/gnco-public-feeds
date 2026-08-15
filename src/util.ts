@@ -31,6 +31,26 @@ export function safeHttpsUrl(value: unknown): string | null {
   }
 }
 
+const ALLOWED_ARTWORK_HOSTS = new Set([
+  "avatars.planningcenteronline.com",
+  "images.planningcenterusercontent.com",
+  "img.youtube.com",
+  "registrations-production.s3.amazonaws.com",
+]);
+
+export function artworkSourceAllowed(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      (ALLOWED_ARTWORK_HOSTS.has(host) || /(^|\.)ytimg\.com$/.test(host))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function absoluteChurchCenterUrl(path: unknown): string | null {
   if (typeof path !== "string" || path.length === 0) return null;
   if (path.startsWith("https://")) return safeHttpsUrl(path);
